@@ -36,25 +36,36 @@ export default definePlugin({
             return;
         }
 
+        // Patch getSoundURL to return our custom URL
+        this.originalGetSoundURL = SoundModule.getSoundURL;
+        SoundModule.getSoundURL = (sound: string) => {
+            const customUrl = this.settings.store.ringtoneUrl;
+            if (customUrl && (
+                sound === "call_ringing" || 
+                sound === "call_ringing_v2" || 
+                sound === "call_ringing_beat" || 
+                sound === "call_calling" ||
+                sound === "incoming_call" ||
+                sound.includes("ringing")
+            )) {
+                console.log(`CustomRingtone: Remplacement de l'URL pour "${sound}" par ${customUrl}`);
+                return customUrl;
+            }
+            return this.originalGetSoundURL(sound);
+        };
+
+        // Also patch playSound just for logging and as a backup
         this.originalPlaySound = SoundModule.playSound;
         SoundModule.playSound = (sound: string, volume: number) => {
-            console.log(`CustomRingtone: Son intercepté: ${sound}`);
-            if (sound === "call_ringing" || sound === "call_ringing_v2" || sound === "call_ringing_beat") {
-                const url = this.settings.store.ringtoneUrl;
-                if (!url) return this.originalPlaySound(sound, volume);
-
-                const audio = new Audio(url);
-                audio.volume = typeof volume === "number" ? volume : 1;
-                audio.play().catch(err => console.error("CustomRingtone: Erreur de lecture", err));
-                return;
-            }
+            console.log(`CustomRingtone: playSound appelé pour "${sound}"`);
             return this.originalPlaySound(sound, volume);
         };
     },
 
     stop() {
-        if (SoundModule && this.originalPlaySound) {
-            SoundModule.playSound = this.originalPlaySound;
+        if (SoundModule) {
+            if (this.originalPlaySound) SoundModule.playSound = this.originalPlaySound;
+            if (this.originalGetSoundURL) SoundModule.getSoundURL = this.originalGetSoundURL;
         }
     }
 });

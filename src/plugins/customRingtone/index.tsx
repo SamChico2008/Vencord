@@ -2,7 +2,7 @@ import definePlugin, { OptionType } from "@utils/types";
 import { definePluginSettings } from "@api/Settings";
 import { findByProps } from "@webpack";
 import { Devs } from "@utils/constants";
-
+import { Button, React } from "@webpack/common";
 
 const SoundModule = findByProps("playSound", "getSoundURL");
 
@@ -13,10 +13,24 @@ const settings = definePluginSettings({
         placeholder: "Mettez l'URL ici",
         description: "L'URL du son personnalisé (.mp3)",
         name: "URL de la sonnerie"
+    },
+    testSound: {
+        type: OptionType.COMPONENT,
+        component: () => (
+            <Button 
+                color={Button.Colors.BRAND} 
+                onClick={() => {
+                    const url = settings.store.ringtoneUrl;
+                    if (!url) return console.log("CustomRingtone: Pas d'URL à tester.");
+                    const audio = new Audio(url);
+                    audio.play().catch(e => console.error("CustomRingtone: Test échoué", e));
+                }}
+            >
+                Tester le son
+            </Button>
+        )
     }
 });
-
-
 
 export default definePlugin({
     name: "CustomRingtone",
@@ -36,11 +50,12 @@ export default definePlugin({
             return;
         }
 
-        // Patch getSoundURL to return our custom URL
-        this.originalGetSoundURL = SoundModule.getSoundURL;
-        SoundModule.getSoundURL = (sound: string) => {
-            const customUrl = this.settings.store.ringtoneUrl;
-            if (customUrl && (
+        this.originalPlaySound = SoundModule.playSound;
+        SoundModule.playSound = (sound: string, volume: number) => {
+            console.log(`CustomRingtone: playSound appelé pour "${sound}"`);
+            
+            const url = this.settings.store.ringtoneUrl;
+            if (url && (
                 sound === "call_ringing" || 
                 sound === "call_ringing_v2" || 
                 sound === "call_ringing_beat" || 
@@ -48,24 +63,23 @@ export default definePlugin({
                 sound === "incoming_call" ||
                 sound.includes("ringing")
             )) {
-                console.log(`CustomRingtone: Remplacement de l'URL pour "${sound}" par ${customUrl}`);
-                return customUrl;
+                console.log(`CustomRingtone: Lecture du son personnalisé: ${url}`);
+                const audio = new Audio(url);
+                audio.volume = typeof volume === "number" ? volume : 1;
+                audio.play().catch(err => {
+                    console.error("CustomRingtone: Erreur de lecture, retour au son de base", err);
+                    this.originalPlaySound(sound, volume);
+                });
+                return;
             }
-            return this.originalGetSoundURL(sound);
-        };
-
-        // Also patch playSound just for logging and as a backup
-        this.originalPlaySound = SoundModule.playSound;
-        SoundModule.playSound = (sound: string, volume: number) => {
-            console.log(`CustomRingtone: playSound appelé pour "${sound}"`);
+            
             return this.originalPlaySound(sound, volume);
         };
     },
 
     stop() {
-        if (SoundModule) {
-            if (this.originalPlaySound) SoundModule.playSound = this.originalPlaySound;
-            if (this.originalGetSoundURL) SoundModule.getSoundURL = this.originalGetSoundURL;
+        if (SoundModule && this.originalPlaySound) {
+            SoundModule.playSound = this.originalPlaySound;
         }
     }
 });

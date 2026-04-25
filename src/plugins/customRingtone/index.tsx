@@ -2,7 +2,7 @@ import definePlugin, { OptionType } from "@utils/types";
 import { definePluginSettings } from "@api/Settings";
 import { findByProps } from "@webpack";
 import { Devs } from "@utils/constants";
-import { Button, React } from "@webpack/common";
+import { Button, React, showToast, Toasts } from "@webpack/common";
 
 const SoundModule = findByProps("playSound", "getSoundURL");
 
@@ -21,9 +21,16 @@ const settings = definePluginSettings({
                 color={Button.Colors.BRAND} 
                 onClick={() => {
                     const url = settings.store.ringtoneUrl;
-                    if (!url) return console.log("CustomRingtone: Pas d'URL à tester.");
+                    if (!url) return showToast("Veuillez d'abord entrer une URL !", Toasts.Type.FAILURE);
+                    
+                    showToast("Tentative de lecture...", Toasts.Type.MESSAGE);
                     const audio = new Audio(url);
-                    audio.play().catch(e => console.error("CustomRingtone: Test échoué", e));
+                    audio.play()
+                        .then(() => showToast("Son joué avec succès !", Toasts.Type.SUCCESS))
+                        .catch(e => {
+                            console.error("CustomRingtone: Erreur de test", e);
+                            showToast("Erreur: " + e.message, Toasts.Type.FAILURE);
+                        });
                 }}
             >
                 Tester le son

@@ -2,6 +2,7 @@ import definePlugin, { OptionType } from "@utils/types";
 import { definePluginSettings } from "@api/Settings";
 import { findByProps } from "@webpack";
 import { Devs } from "@utils/constants";
+import { React } from "@webpack/common";
 
 const SoundModule = findByProps("playSound", "getSoundURL");
 
@@ -14,6 +15,17 @@ const settings = definePluginSettings({
     }
 });
 
+const AboutComponent = () => (
+    <div style={{ display: "flex", alignItems: "center", gap: "15px", marginBottom: "20px", padding: "15px", background: "rgba(0,0,0,0.1)", borderRadius: "8px" }}>
+        <img src="https://github.com/samchico2008.png" style={{ width: "80px", height: "80px", borderRadius: "50%", border: "2px solid #5865F2" }} />
+        <div>
+            <div style={{ fontSize: "1.4rem", fontWeight: "bold", color: "#fff" }}>SamChico2008</div>
+            <div style={{ opacity: 0.8 }}>Développeur de CustomRingtone</div>
+            <a href="https://github.com/samchico2008" target="_blank" style={{ color: "#5865F2", textDecoration: "none", marginTop: "5px", display: "inline-block" }}>Voir mon profil GitHub</a>
+        </div>
+    </div>
+);
+
 export default definePlugin({
     name: "CustomRingtone",
     description: "Remplace le son d'appel Discord par un son personnalisé.",
@@ -25,6 +37,7 @@ export default definePlugin({
     ],
     tags: ["Notifications", "Fun"],
     settings,
+    settingsAboutComponent: AboutComponent,
 
     start() {
         if (!SoundModule) {

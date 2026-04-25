@@ -3,60 +3,67 @@ import { definePluginSettings } from "@api/Settings";
 import { findByProps } from "@webpack";
 import { Devs } from "@utils/constants";
 import { Button, React, showToast, Toasts } from "@webpack/common";
+import { SKYPE_BASE64 } from "./skype_base64";
 
 const SoundModule = findByProps("playSound", "getSoundURL");
-
-const DEFAULT_RINGTONE = "https://raw.githubusercontent.com/iPixelGalaxy/GuessTheSound/main/sounds/skype-call.mp3";
 
 const settings = definePluginSettings({
     ringtoneUrl: {
         type: OptionType.STRING,
-        default: DEFAULT_RINGTONE,
+        default: "",
         placeholder: "Mettez l'URL ici (.mp3)",
-        description: "L'URL du son personnalisé (.mp3)",
+        description: "L'URL du son personnalisé (.mp3). Laissez vide pour utiliser le son Skype par défaut.",
         name: "URL de la sonnerie"
     },
     buttons: {
         type: OptionType.COMPONENT,
         component: () => (
-            <div style={{ display: "flex", gap: "10px" }}>
-                <Button 
-                    color={Button.Colors.BRAND} 
-                    onClick={() => {
-                        const url = settings.store.ringtoneUrl;
-                        if (!url) return showToast("Veuillez d'abord entrer une URL !", Toasts.Type.FAILURE);
-                        
-                        showToast("Téléchargement du son...", Toasts.Type.MESSAGE);
-                        fetch(url)
-                            .then(res => {
-                                if (!res.ok) throw new Error("Erreur HTTP: " + res.status);
-                                return res.blob();
-                            })
-                            .then(blob => {
-                                const blobUrl = URL.createObjectURL(blob);
-                                const audio = new Audio(blobUrl);
+            <div style={{ display: "flex", gap: "10px", flexDirection: "column" }}>
+                <div style={{ display: "flex", gap: "10px" }}>
+                    <Button 
+                        color={Button.Colors.BRAND} 
+                        onClick={() => {
+                            const url = settings.store.ringtoneUrl;
+                            const source = url || SKYPE_BASE64;
+                            
+                            showToast(url ? "Téléchargement..." : "Lecture du son par défaut...", Toasts.Type.MESSAGE);
+                            
+                            if (!url) {
+                                // Direct base64 playback
+                                const audio = new Audio(SKYPE_BASE64);
                                 audio.play()
-                                    .then(() => showToast("Son joué avec succès !", Toasts.Type.SUCCESS))
-                                    .catch(e => showToast("Erreur lecture: " + e.message, Toasts.Type.FAILURE));
-                            })
-                            .catch(e => {
-                                console.error("CustomRingtone: Erreur", e);
-                                showToast("Erreur téléchargement: " + e.message, Toasts.Type.FAILURE);
-                            });
-                    }}
-                >
-                    Tester le son
-                </Button>
-                <Button
-                    color={Button.Colors.PRIMARY}
-                    look={Button.Looks.OUTLINED}
-                    onClick={() => {
-                        settings.store.ringtoneUrl = DEFAULT_RINGTONE;
-                        showToast("URL réinitialisée (Skype)", Toasts.Type.SUCCESS);
-                    }}
-                >
-                    Réinitialiser (Skype)
-                </Button>
+                                    .then(() => showToast("Son joué !", Toasts.Type.SUCCESS))
+                                    .catch(e => showToast("Erreur: " + e.message, Toasts.Type.FAILURE));
+                                return;
+                            }
+
+                            fetch(url)
+                                .then(res => res.blob())
+                                .then(blob => {
+                                    const audio = new Audio(URL.createObjectURL(blob));
+                                    audio.play()
+                                        .then(() => showToast("Son joué !", Toasts.Type.SUCCESS))
+                                        .catch(e => showToast("Erreur: " + e.message, Toasts.Type.FAILURE));
+                                })
+                                .catch(e => showToast("Erreur téléchargement: " + e.message, Toasts.Type.FAILURE));
+                        }}
+                    >
+                        Tester le son
+                    </Button>
+                    <Button
+                        color={Button.Colors.PRIMARY}
+                        look={Button.Looks.OUTLINED}
+                        onClick={() => {
+                            settings.store.ringtoneUrl = "";
+                            showToast("Utilisation du son Skype par défaut", Toasts.Type.SUCCESS);
+                        }}
+                    >
+                        Réinitialiser (Skype)
+                    </Button>
+                </div>
+                <div style={{ color: "var(--text-muted)", fontSize: "12px" }}>
+                    Note: Si l'URL est vide, le plugin utilise le son Skype intégré (Base64).
+                </div>
             </div>
         )
     }
@@ -64,7 +71,7 @@ const settings = definePluginSettings({
 
 export default definePlugin({
     name: "CustomRingtone",
-    description: "Remplace le son d'appel Discord par un son personnalisé.",
+    description: "Remplace le son d'appel Discord par un son personnalisé (Skype par défaut).",
     authors: [
         {
             name: "SamChico2008",
@@ -84,26 +91,29 @@ export default definePlugin({
         SoundModule.playSound = (sound: string, volume: number) => {
             const url = this.settings.store.ringtoneUrl;
             
-            if (url && (
-                sound === "call_ringing" || 
+            if (sound === "call_ringing" || 
                 sound === "call_ringing_v2" || 
                 sound === "call_ringing_beat" || 
                 sound === "call_calling" ||
                 sound === "incoming_call" ||
                 sound.includes("ringing")
-            )) {
+            ) {
                 console.log(`CustomRingtone: Interception de "${sound}"`);
                 
+                if (!url) {
+                    // Use embedded sound
+                    const audio = new Audio(SKYPE_BASE64);
+                    audio.volume = typeof volume === "number" ? volume : 1;
+                    audio.play().catch(() => this.originalPlaySound(sound, volume));
+                    return;
+                }
+
                 fetch(url)
                     .then(res => res.blob())
                     .then(blob => {
-                        const blobUrl = URL.createObjectURL(blob);
-                        const audio = new Audio(blobUrl);
+                        const audio = new Audio(URL.createObjectURL(blob));
                         audio.volume = typeof volume === "number" ? volume : 1;
-                        audio.play().catch(e => {
-                            console.error("CustomRingtone: Fallback base64/blob failed", e);
-                            this.originalPlaySound(sound, volume);
-                        });
+                        audio.play().catch(() => this.originalPlaySound(sound, volume));
                     })
                     .catch(() => this.originalPlaySound(sound, volume));
                 

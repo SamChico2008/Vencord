@@ -9,7 +9,8 @@ const SoundModule = findByProps("playSound", "getSoundURL");
 const settings = definePluginSettings({
     ringtoneUrl: {
         type: OptionType.STRING,
-        default: "https://www.myinstants.com/media/sounds/skype-ringtone.mp3",
+        default: "",
+        placeholder: "Mettez l'URL ici",
         description: "L'URL du son personnalisé (.mp3)",
         name: "URL de la sonnerie"
     }
@@ -39,7 +40,10 @@ export default definePlugin({
         SoundModule.playSound = (sound: string, volume: number) => {
             console.log(`CustomRingtone: Son intercepté: ${sound}`);
             if (sound === "call_ringing" || sound === "call_ringing_v2" || sound === "call_ringing_beat") {
-                const audio = new Audio(this.settings.store.ringtoneUrl);
+                const url = this.settings.store.ringtoneUrl;
+                if (!url) return this.originalPlaySound(sound, volume);
+
+                const audio = new Audio(url);
                 audio.volume = typeof volume === "number" ? volume : 1;
                 audio.play().catch(err => console.error("CustomRingtone: Erreur de lecture", err));
                 return;

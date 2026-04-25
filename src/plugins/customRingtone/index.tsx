@@ -7,6 +7,27 @@ import { SKYPE_BASE64 } from "./skype_base64";
 
 const SoundModule = findByProps("playSound", "getSoundURL");
 
+// Helper to convert base64 (with or without data: prefix) to a Blob URL
+function getAudioUrl(source: string) {
+    if (!source.startsWith("data:")) return source;
+    
+    try {
+        const parts = source.split(",");
+        const base64 = parts[parts.length - 1];
+        const byteCharacters = atob(base64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: "audio/mpeg" });
+        return URL.createObjectURL(blob);
+    } catch (e) {
+        console.error("CustomRingtone: Base64 error", e);
+        return source; // Fallback to raw string if conversion fails
+    }
+}
+
 const settings = definePluginSettings({
     ringtoneUrl: {
         type: OptionType.STRING,
@@ -29,8 +50,9 @@ const settings = definePluginSettings({
                             showToast(url ? "Téléchargement..." : "Lecture du son par défaut...", Toasts.Type.MESSAGE);
                             
                             if (!url) {
-                                // Direct base64 playback
-                                const audio = new Audio(SKYPE_BASE64);
+                                // Play embedded base64 via Blob
+                                const blobUrl = getAudioUrl(SKYPE_BASE64);
+                                const audio = new Audio(blobUrl);
                                 audio.play()
                                     .then(() => showToast("Son joué !", Toasts.Type.SUCCESS))
                                     .catch(e => showToast("Erreur: " + e.message, Toasts.Type.FAILURE));
@@ -101,8 +123,9 @@ export default definePlugin({
                 console.log(`CustomRingtone: Interception de "${sound}"`);
                 
                 if (!url) {
-                    // Use embedded sound
-                    const audio = new Audio(SKYPE_BASE64);
+                    // Use embedded sound via Blob
+                    const blobUrl = getAudioUrl(SKYPE_BASE64);
+                    const audio = new Audio(blobUrl);
                     audio.volume = typeof volume === "number" ? volume : 1;
                     audio.play().catch(() => this.originalPlaySound(sound, volume));
                     return;

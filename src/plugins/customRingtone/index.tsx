@@ -16,12 +16,46 @@ const settings = definePluginSettings({
 });
 
 const AboutComponent = () => (
-    <div style={{ display: "flex", alignItems: "center", gap: "15px", marginBottom: "20px", padding: "15px", background: "rgba(0,0,0,0.1)", borderRadius: "8px" }}>
-        <img src="https://github.com/samchico2008.png" style={{ width: "80px", height: "80px", borderRadius: "50%", border: "2px solid #5865F2" }} />
-        <div>
-            <div style={{ fontSize: "1.4rem", fontWeight: "bold", color: "#fff" }}>SamChico2008</div>
-            <div style={{ opacity: 0.8 }}>Développeur de CustomRingtone</div>
-            <a href="https://github.com/samchico2008" target="_blank" style={{ color: "#5865F2", textDecoration: "none", marginTop: "5px", display: "inline-block" }}>Voir mon profil GitHub</a>
+    <div style={{ 
+        display: "flex", 
+        alignItems: "center", 
+        gap: "20px", 
+        padding: "20px", 
+        background: "rgba(88, 101, 242, 0.1)", 
+        borderRadius: "12px", 
+        border: "1px solid rgba(88, 101, 242, 0.3)", 
+        margin: "10px 0" 
+    }}>
+        <img 
+            src="https://avatars.githubusercontent.com/u/1101553187?v=4" 
+            style={{ 
+                width: "90px", 
+                height: "90px", 
+                borderRadius: "50%", 
+                border: "3px solid #5865F2", 
+                boxShadow: "0 0 15px rgba(88, 101, 242, 0.4)" 
+            }} 
+        />
+        <div style={{ flex: 1 }}>
+            <div style={{ fontSize: "1.6rem", fontWeight: "800", color: "#fff" }}>SamChico</div>
+            <div style={{ fontSize: "1rem", color: "#b9bbbe", marginBottom: "10px" }}>Développeur du plugin CustomRingtone</div>
+            <div style={{ display: "flex", gap: "10px" }}>
+                <a 
+                    href="https://github.com/samchico2008" 
+                    target="_blank" 
+                    style={{ 
+                        padding: "8px 16px", 
+                        background: "#5865F2", 
+                        color: "#fff", 
+                        borderRadius: "6px", 
+                        textDecoration: "none", 
+                        fontSize: "0.9rem", 
+                        fontWeight: "600" 
+                    }}
+                >
+                    Mon Profil GitHub
+                </a>
+            </div>
         </div>
     </div>
 );

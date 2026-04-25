@@ -183,6 +183,7 @@ async function parseFile(fileName: string) {
         return [data, readme] as const;
     }
 
+    console.warn(`No definePlugin found in ${fileName}`);
     throw fail("no default export called 'definePlugin' found");
 }
 
@@ -212,13 +213,18 @@ function isPluginFile({ name }: { name: string; }) {
     const plugins = [] as PluginData[];
     const readmes = {} as Record<string, string>;
 
-    await Promise.all(["src/plugins", "src/plugins/_core"].flatMap(dir =>
+    await Promise.all(["src/plugins", "src/plugins/_core", "src/userplugins"].flatMap(dir =>
         readdirSync(dir, { withFileTypes: true })
             .filter(isPluginFile)
             .map(async dirent => {
-                const [data, readme] = await parseFile(await getEntryPoint(dir, dirent));
-                plugins.push(data);
-                if (readme) readmes[data.name] = readme;
+                console.log(`Scanning: ${dir}/${dirent.name}`);
+                try {
+                    const [data, readme] = await parseFile(await getEntryPoint(dir, dirent));
+                    plugins.push(data);
+                    if (readme) readmes[data.name] = readme;
+                } catch (e) {
+                    console.error(`Failed to parse plugin in ${dir}/${dirent.name}:`, e);
+                }
             })
     ));
 

@@ -7,24 +7,57 @@ import { SKYPE_BASE64 } from "./skype_base64";
 
 const SoundModule = findByProps("playSound", "getSoundURL");
 
-// Helper to convert base64 (with or without data: prefix) to a Blob URL
-function getAudioUrl(source: string) {
-    if (!source.startsWith("data:")) return source;
+// Audio Context for reliable playback
+let audioContext: AudioContext | null = null;
+
+function getAudioContext() {
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    return audioContext;
+}
+
+// Convert base64 to ArrayBuffer
+async function base64ToArrayBuffer(base64: string): Promise<ArrayBuffer> {
+    const binaryString = atob(base64.split(",")[1]);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+}
+
+// Play sound using Web Audio API
+async function playAudio(source: string, volume: number = 1) {
+    const context = getAudioContext();
+    await context.resume();
     
     try {
-        const parts = source.split(",");
-        const base64 = parts[parts.length - 1];
-        const byteCharacters = atob(base64);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
+        let arrayBuffer: ArrayBuffer;
+        
+        if (source.startsWith("data:")) {
+            arrayBuffer = await base64ToArrayBuffer(source);
+        } else {
+            const response = await fetch(source);
+            arrayBuffer = await response.arrayBuffer();
         }
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: "audio/mpeg" });
-        return URL.createObjectURL(blob);
+
+        const audioBuffer = await context.decodeAudioData(arrayBuffer);
+        const sourceNode = context.createBufferSource();
+        const gainNode = context.createGain();
+
+        sourceNode.buffer = audioBuffer;
+        gainNode.gain.value = volume;
+
+        sourceNode.connect(gainNode);
+        gainNode.connect(context.destination);
+
+        sourceNode.start(0);
+        return true;
     } catch (e) {
-        console.error("CustomRingtone: Base64 error", e);
-        return source; // Fallback to raw string if conversion fails
+        console.error("CustomRingtone: Playback error", e);
+        throw e;
     }
 }
 
@@ -43,31 +76,18 @@ const settings = definePluginSettings({
                 <div style={{ display: "flex", gap: "10px" }}>
                     <Button 
                         color={Button.Colors.BRAND} 
-                        onClick={() => {
+                        onClick={async () => {
                             const url = settings.store.ringtoneUrl;
                             const source = url || SKYPE_BASE64;
                             
                             showToast(url ? "Téléchargement..." : "Lecture du son par défaut...", Toasts.Type.MESSAGE);
                             
-                            if (!url) {
-                                // Play embedded base64 via Blob
-                                const blobUrl = getAudioUrl(SKYPE_BASE64);
-                                const audio = new Audio(blobUrl);
-                                audio.play()
-                                    .then(() => showToast("Son joué !", Toasts.Type.SUCCESS))
-                                    .catch(e => showToast("Erreur: " + e.message, Toasts.Type.FAILURE));
-                                return;
+                            try {
+                                await playAudio(source);
+                                showToast("Son joué !", Toasts.Type.SUCCESS);
+                            } catch (e) {
+                                showToast("Erreur: " + e.message, Toasts.Type.FAILURE);
                             }
-
-                            fetch(url)
-                                .then(res => res.blob())
-                                .then(blob => {
-                                    const audio = new Audio(URL.createObjectURL(blob));
-                                    audio.play()
-                                        .then(() => showToast("Son joué !", Toasts.Type.SUCCESS))
-                                        .catch(e => showToast("Erreur: " + e.message, Toasts.Type.FAILURE));
-                                })
-                                .catch(e => showToast("Erreur téléchargement: " + e.message, Toasts.Type.FAILURE));
                         }}
                     >
                         Tester le son
@@ -97,7 +117,7 @@ export default definePlugin({
     authors: [
         {
             name: "SamChico2008",
-            id: 0n
+            id: 1121045973801082880n
         }
     ],
     tags: ["Notifications", "Fun"],
@@ -113,32 +133,22 @@ export default definePlugin({
         SoundModule.playSound = (sound: string, volume: number) => {
             const url = this.settings.store.ringtoneUrl;
             
-            if (sound === "call_ringing" || 
-                sound === "call_ringing_v2" || 
-                sound === "call_ringing_beat" || 
-                sound === "call_calling" ||
-                sound === "incoming_call" ||
-                sound.includes("ringing")
-            ) {
+            const isRingtone = [
+                "call_ringing",
+                "call_ringing_v2",
+                "call_ringing_beat",
+                "call_calling",
+                "incoming_call"
+            ].includes(sound) || sound.includes("ringing");
+
+            if (isRingtone) {
                 console.log(`CustomRingtone: Interception de "${sound}"`);
                 
-                if (!url) {
-                    // Use embedded sound via Blob
-                    const blobUrl = getAudioUrl(SKYPE_BASE64);
-                    const audio = new Audio(blobUrl);
-                    audio.volume = typeof volume === "number" ? volume : 1;
-                    audio.play().catch(() => this.originalPlaySound(sound, volume));
-                    return;
-                }
-
-                fetch(url)
-                    .then(res => res.blob())
-                    .then(blob => {
-                        const audio = new Audio(URL.createObjectURL(blob));
-                        audio.volume = typeof volume === "number" ? volume : 1;
-                        audio.play().catch(() => this.originalPlaySound(sound, volume));
-                    })
-                    .catch(() => this.originalPlaySound(sound, volume));
+                const source = url || SKYPE_BASE64;
+                playAudio(source, volume).catch(() => {
+                    console.warn("CustomRingtone: Web Audio failed, falling back to original sound.");
+                    this.originalPlaySound(sound, volume);
+                });
                 
                 return;
             }
@@ -151,5 +161,10 @@ export default definePlugin({
         if (SoundModule && this.originalPlaySound) {
             SoundModule.playSound = this.originalPlaySound;
         }
+        if (audioContext) {
+            audioContext.close();
+            audioContext = null;
+        }
     }
 });
+

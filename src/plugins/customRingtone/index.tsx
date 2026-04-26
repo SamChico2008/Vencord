@@ -15,84 +15,82 @@ const settings = definePluginSettings({
     },
     customSound: {
         type: OptionType.STRING,
-        description: "Données audio en Base64 (uploadées via le bouton ci-dessous)",
+        description: "Données audio en Base64",
         default: "",
     }
 });
 
+let originalPlaySound: any = null;
+let savedModule: any = null;
+
 async function playCallSound() {
-    if (!settings.store.enabled || !settings.store.customSound) {
-        logger.info("Sonnerie désactivée ou aucun fichier uploadé.");
-        return;
-    }
+    if (!settings.store.enabled || !settings.store.customSound) return;
 
     try {
-        // Nettoyage et décodage Base64
         const base64Data = settings.store.customSound.split(",")[1] || settings.store.customSound;
         const binaryString = atob(base64Data.trim());
         const len = binaryString.length;
         const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-        }
+        for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
 
-        // Décodage et lecture
         const audioBuffer = await audioContext.decodeAudioData(bytes.buffer);
         const source = audioContext.createBufferSource();
         source.buffer = audioBuffer;
         source.connect(audioContext.destination);
         source.start(0);
-        logger.info("Lecture du son personnalisée réussie !");
     } catch (error) {
-        logger.error("Erreur de lecture audio :", error);
+        logger.error("Erreur de lecture :", error);
     }
 }
 
 export default definePlugin({
     name: "CustomRingtone",
-    description: "Permet d'utiliser un fichier MP3 local comme sonnerie d'appel.",
+    description: "Remplace la sonnerie d'appel par un fichier MP3 local.",
     authors: [{ name: "Antigravity", id: 1n }],
     settings,
 
-    async patches() {
-        return [
-            {
-                find: "playSound(e,t){",
-                replacement: [
-                    {
-                        match: /playSound\(e,t\)\{/,
-                        replace: 'playSound(e,t){ if(e === "call_ringing") { try { const p = Vencord.Plugins.plugins.CustomRingtone; if(p && p.instance && p.instance.playCallSound) p.instance.playCallSound(); } catch(err) { console.error("CustomRingtone Hook Error:", err); } return; } '
-                    }
-                ]
-            }
-        ];
+    start() {
+        const SoundModule = findByProps("playSound", "createSound");
+        if (SoundModule) {
+            savedModule = SoundModule;
+            originalPlaySound = SoundModule.playSound;
+            SoundModule.playSound = (name: string, volume: number) => {
+                if (name === "call_ringing" || name === "call_ringing_v2") {
+                    playCallSound();
+                    return;
+                }
+                return originalPlaySound(name, volume);
+            };
+            logger.info("Hook injecté avec succès.");
+        } else {
+            logger.error("Impossible de trouver le module de son.");
+        }
     },
 
-    // Méthode accessible depuis le patch
-    playCallSound,
+    stop() {
+        if (savedModule && originalPlaySound) {
+            savedModule.playSound = originalPlaySound;
+        }
+    },
 
-    // Interface de réglages personnalisée pour l'upload
     settingsAboutComponent: () => {
         const handleFileChange = (e: any) => {
             const file = e.target.files?.[0];
             if (!file) return;
-
             const reader = new FileReader();
             reader.onload = () => {
-                const result = reader.result as string;
-                settings.store.customSound = result;
-                logger.info("Nouveau fichier audio chargé !");
-                alert("Fichier audio chargé avec succès !");
+                settings.store.customSound = reader.result as string;
+                alert("Sonnerie enregistrée !");
             };
             reader.readAsDataURL(file);
         };
 
         return (
-            <Forms.FormSection title="Gestion de la sonnerie">
-                <Text variant="text-md/normal" style={{ marginBottom: "10px" }}>
-                    Sélectionnez un fichier MP3 sur votre ordinateur pour remplacer la sonnerie d'appel.
+            <Forms.FormSection title="Configuration de la sonnerie">
+                <Text variant="text-md/normal" style={{ marginBottom: "15px" }}>
+                    Sélectionnez un fichier MP3 pour remplacer la sonnerie Discord.
                 </Text>
-                <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                <div style={{ display: "flex", gap: "10px" }}>
                     <Button
                         onClick={() => {
                             const input = document.createElement("input");
@@ -102,34 +100,19 @@ export default definePlugin({
                             input.click();
                         }}
                     >
-                        📁 Choisir un fichier MP3
+                        📁 Choisir un MP3
                     </Button>
                     {settings.store.customSound && (
-                        <Button
-                            color={Button.Colors.RED}
-                            look={Button.Looks.OUTLINED}
-                            onClick={() => {
-                                settings.store.customSound = "";
-                                alert("Sonnerie supprimée.");
-                            }}
-                        >
-                            🗑️ Supprimer
-                        </Button>
+                        <>
+                            <Button color={Button.Colors.GREEN} onClick={() => playCallSound()}>
+                                ▶️ Tester
+                            </Button>
+                            <Button color={Button.Colors.RED} look={Button.Looks.OUTLINED} onClick={() => settings.store.customSound = ""}>
+                                🗑️ Supprimer
+                            </Button>
+                        </>
                     )}
                 </div>
-                {settings.store.customSound && (
-                    <div style={{ marginTop: "15px", padding: "10px", backgroundColor: "rgba(0,0,0,0.1)", borderRadius: "8px" }}>
-                        <Text color="text-positive" style={{ fontWeight: "bold" }}>✅ Sonnerie configurée</Text>
-                        <Button
-                            style={{ marginTop: "10px" }}
-                            size={Button.Sizes.SMALL}
-                            color={Button.Colors.GREEN}
-                            onClick={() => playCallSound()}
-                        >
-                            ▶️ Tester la sonnerie
-                        </Button>
-                    </div>
-                )}
             </Forms.FormSection>
         );
     }

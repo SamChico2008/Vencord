@@ -1,10 +1,8 @@
 import definePlugin, { OptionType } from "@utils/types";
 import { definePluginSettings } from "@api/Settings";
-import { findByProps } from "@webpack";
+import { findByProps, find } from "@webpack";
 import { Button, React, showToast, Toasts } from "@webpack/common";
 import { SKYPE_BASE64 } from "./skype_base64";
-
-const SoundModule = findByProps("playSound", "getSoundURL");
 
 // Fonction pour jouer le son (supporte URL et Base64 via Blob)
 async function playAudio(source: string, volume: number = 1) {
@@ -16,14 +14,13 @@ async function playAudio(source: string, volume: number = 1) {
         // Si c'est du base64 (le son Skype par défaut)
         if (source.startsWith("data:")) {
             const parts = source.split(",");
-            const mime = parts[0].match(/:(.*?);/)?.[1] || "audio/mpeg";
             const bstr = atob(parts[1]);
             let n = bstr.length;
             const u8arr = new Uint8Array(n);
             while (n--) {
                 u8arr[n] = bstr.charCodeAt(n);
             }
-            const blob = new Blob([u8arr], { type: mime });
+            const blob = new Blob([u8arr], { type: "audio/mpeg" });
             url = URL.createObjectURL(blob);
             console.log("[CustomRingtone] URL de l'objet créé :", url);
         }
@@ -96,6 +93,9 @@ const settings = definePluginSettings({
     }
 });
 
+let originalPlaySound: any = null;
+let hookedModule: any = null;
+
 export default definePlugin({
     name: "CustomRingtone",
     description: "Remplace la sonnerie d'appel par le son de votre choix (ou Skype).",
@@ -103,39 +103,59 @@ export default definePlugin({
     settings,
 
     start() {
-        console.log("[CustomRingtone] Initialisation...");
-        if (!SoundModule) {
-            console.error("[CustomRingtone] Module de son introuvable.");
-            return;
-        }
+        console.log("[CustomRingtone] Recherche du module de son...");
 
-        this.originalPlaySound = SoundModule.playSound;
-        SoundModule.playSound = (sound: string, volume: number) => {
-            // Liste des sons d'appel à intercepter
-            const isCallSound = [
-                "call_ringing",
-                "call_ringing_v2",
-                "call_ringing_beat",
-                "call_calling",
-                "incoming_call"
-            ].includes(sound) || (typeof sound === "string" && sound.includes("ringing"));
+        const initHook = () => {
+            // Recherche par propriétés directes ou dans l'export par défaut
+            const module = findByProps("playSound", "getSoundURL") 
+                        || find(m => m?.playSound) 
+                        || find(m => m?.default?.playSound);
 
-            if (isCallSound) {
-                console.log(`[CustomRingtone] Son détecté : ${sound}`);
-                const source = settings.store.ringtoneUrl || SKYPE_BASE64;
-                playAudio(source, volume).catch(() => {
-                    this.originalPlaySound(sound, volume);
-                });
-                return;
+            if (module) {
+                hookedModule = module.playSound ? module : module.default;
+                originalPlaySound = hookedModule.playSound;
+                
+                hookedModule.playSound = (sound: string, volume: number) => {
+                    const isRingtone = typeof sound === "string" && (
+                        ["call_ringing", "call_ringing_v2", "call_ringing_beat", "call_calling", "incoming_call"].includes(sound) || 
+                        sound.includes("ringing")
+                    );
+
+                    if (isRingtone) {
+                        console.log(`[CustomRingtone] Interception de : ${sound}`);
+                        playAudio(settings.store.ringtoneUrl || SKYPE_BASE64, volume).catch(() => {
+                            originalPlaySound(sound, volume);
+                        });
+                        return;
+                    }
+                    
+                    return originalPlaySound(sound, volume);
+                };
+                console.log("[CustomRingtone] Module trouvé et hooké :", hookedModule);
+                return true;
             }
-            
-            return this.originalPlaySound(sound, volume);
+            return false;
         };
+
+        // Tentative immédiate
+        if (!initHook()) {
+            console.log("[CustomRingtone] Module non trouvé au démarrage, passage en mode attente...");
+            const interval = setInterval(() => {
+                if (initHook()) {
+                    clearInterval(interval);
+                    showToast("CustomRingtone : Module de son trouvé !", Toasts.Type.SUCCESS);
+                }
+            }, 2000);
+            
+            // Timeout après 30 secondes pour ne pas tourner indéfiniment
+            setTimeout(() => clearInterval(interval), 30000);
+        }
     },
 
     stop() {
-        if (SoundModule && this.originalPlaySound) {
-            SoundModule.playSound = this.originalPlaySound;
+        if (hookedModule && originalPlaySound) {
+            hookedModule.playSound = originalPlaySound;
         }
+        console.log("[CustomRingtone] Plugin arrêté.");
     }
 });

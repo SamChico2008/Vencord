@@ -54,24 +54,22 @@ function stopCallSound() {
 
 export default definePlugin({
     name: "CustomRingtone",
-    description: "Version 1.34.0 - Blocage total du son original.",
+    description: "Version 1.35.0 - Patch Webpack Flexible.",
     authors: [{ name: "Antigravity", id: 1n }],
     settings,
 
-    // LE PATCH QUI VA TUER LE SON ORIGINAL
     patches: [
         {
-            // On cherche le module qui contient les noms de fichiers audio de Discord
-            find: 'call_ringing:"', 
+            // On cible le module identifié dans ta console (450640)
+            find: 'call_ringing', 
             replacement: [
                 {
-                    // On remplace le nom du fichier original par une chaîne vide
-                    // Comme ça, Discord ne trouvera pas le fichier et ne pourra rien jouer
-                    match: /call_ringing:"[^"]+"/,
+                    // Match beaucoup plus large pour vider n'importe quel format d'URL
+                    match: /call_ringing:[^,}]+/,
                     replace: 'call_ringing:""'
                 },
                 {
-                    match: /call_ringing_v2:"[^"]+"/,
+                    match: /call_ringing_v2:[^,}]+/,
                     replace: 'call_ringing_v2:""'
                 }
             ]
@@ -90,7 +88,7 @@ export default definePlugin({
         FluxDispatcher.subscribe("CALL_DELETE", () => stopCallSound());
         FluxDispatcher.subscribe("VOICE_STATE_UPDATE", () => stopCallSound());
         
-        logger.info("✅ Système de blocage par Patch activé.");
+        logger.info("✅ Patch 1.35.0 (Flexible) activé.");
     },
 
     stop() {
@@ -102,7 +100,7 @@ export default definePlugin({
 
     settingsAboutComponent: () => {
         return (
-            <Forms.FormSection title="Custom Ringtone 1.34.0">
+            <Forms.FormSection title="Custom Ringtone 1.35.0">
                 <Button color={Button.Colors.GREEN} onClick={() => playCallSound()}>▶️ Tester</Button>
             </Forms.FormSection>
         );

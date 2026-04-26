@@ -38,6 +38,7 @@ async function playCallSound() {
         source.buffer = audioBuffer;
         source.connect(audioContext.destination);
         source.start(0);
+        logger.info("Lecture de la sonnerie personnalisée !");
     } catch (error) {
         logger.error("Erreur de lecture :", error);
     }
@@ -50,20 +51,47 @@ export default definePlugin({
     settings,
 
     start() {
-        const SoundModule = findByProps("playSound", "createSound");
-        if (SoundModule) {
-            savedModule = SoundModule;
-            originalPlaySound = SoundModule.playSound;
-            SoundModule.playSound = (name: string, volume: number) => {
-                if (name === "call_ringing" || name === "call_ringing_v2") {
-                    playCallSound();
-                    return;
+        const attemptHook = () => {
+            // Recherche du module de son par ses propriétés classiques
+            const SoundModule = findByProps("playSound", "createSound") || findByProps("playSound", "getSoundURL");
+            
+            if (SoundModule) {
+                savedModule = SoundModule;
+                originalPlaySound = SoundModule.playSound;
+                
+                SoundModule.playSound = (name: string, volume: number) => {
+                    // On intercepte toutes les variantes de sonneries d'appel
+                    const isRingtone = name && (
+                        name.includes("call_ringing") || 
+                        name.includes("ringing") || 
+                        name === "call_calling"
+                    );
+
+                    if (isRingtone) {
+                        logger.info(`Appel détecté (${name}), lecture du son personnalisé...`);
+                        playCallSound();
+                        return; // Empêche le son original de jouer
+                    }
+                    return originalPlaySound(name, volume);
+                };
+                
+                logger.info("Hook de sonnerie injecté avec succès !");
+                return true;
+            }
+            return false;
+        };
+
+        // Si on ne trouve pas le module tout de suite, on réessaye
+        if (!attemptHook()) {
+            logger.warn("Module de son non trouvé, nouvelle tentative dans 2 secondes...");
+            const interval = setInterval(() => {
+                if (attemptHook()) {
+                    clearInterval(interval);
                 }
-                return originalPlaySound(name, volume);
-            };
-            logger.info("Hook injecté avec succès.");
-        } else {
-            logger.error("Impossible de trouver le module de son.");
+            }, 2000);
+            
+            // Sécurité : on arrête de chercher après 30 secondes
+            setTimeout(() => clearInterval(interval), 30000);
         }
     },
 
@@ -73,6 +101,8 @@ export default definePlugin({
         }
     },
 
+    playCallSound, // Export pour le bouton Tester
+
     settingsAboutComponent: () => {
         const handleFileChange = (e: any) => {
             const file = e.target.files?.[0];
@@ -80,17 +110,17 @@ export default definePlugin({
             const reader = new FileReader();
             reader.onload = () => {
                 settings.store.customSound = reader.result as string;
-                alert("Sonnerie enregistrée !");
+                alert("Fichier son chargé avec succès !");
             };
             reader.readAsDataURL(file);
         };
 
         return (
-            <Forms.FormSection title="Configuration de la sonnerie">
+            <Forms.FormSection title="Gestion de la sonnerie">
                 <Text variant="text-md/normal" style={{ marginBottom: "15px" }}>
-                    Sélectionnez un fichier MP3 pour remplacer la sonnerie Discord.
+                    Chargez un fichier MP3 pour remplacer la sonnerie d'appel Discord.
                 </Text>
-                <div style={{ display: "flex", gap: "10px" }}>
+                <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
                     <Button
                         onClick={() => {
                             const input = document.createElement("input");
@@ -107,7 +137,14 @@ export default definePlugin({
                             <Button color={Button.Colors.GREEN} onClick={() => playCallSound()}>
                                 ▶️ Tester
                             </Button>
-                            <Button color={Button.Colors.RED} look={Button.Looks.OUTLINED} onClick={() => settings.store.customSound = ""}>
+                            <Button 
+                                color={Button.Colors.RED} 
+                                look={Button.Looks.OUTLINED} 
+                                onClick={() => {
+                                    settings.store.customSound = "";
+                                    alert("Sonnerie supprimée.");
+                                }}
+                            >
                                 🗑️ Supprimer
                             </Button>
                         </>

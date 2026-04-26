@@ -22,31 +22,24 @@ const settings = definePluginSettings({
 
 let currentSource: AudioBufferSourceNode | null = null;
 let savedModule: any = null;
-let originalPlaySound: any = null;
-let originalCreateSound: any = null;
+let originalGetSoundURL: any = null;
 
 async function playCallSound() {
     if (!settings.store.enabled || !settings.store.customSound) return;
-
     try {
         if (audioContext.state === "suspended") await audioContext.resume();
-        
-        // Arrêter le son précédent s'il y en a un
         stopCallSound();
-
         const base64Data = settings.store.customSound.split(",")[1] || settings.store.customSound;
         const binaryString = atob(base64Data.trim());
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
-
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
         const audioBuffer = await audioContext.decodeAudioData(bytes.buffer);
         currentSource = audioContext.createBufferSource();
         currentSource.buffer = audioBuffer;
-        currentSource.loop = true; // La sonnerie doit boucler !
+        currentSource.loop = true;
         currentSource.connect(audioContext.destination);
         currentSource.start(0);
-        logger.info("🔊 Sonnerie personnalisée démarrée (Boucle active)");
+        logger.info("🔊 MP3 lancé (Appel Sortant ou Entrant) !");
     } catch (error) {
         logger.error("❌ Erreur audio :", error);
     }
@@ -54,69 +47,48 @@ async function playCallSound() {
 
 function stopCallSound() {
     if (currentSource) {
-        try {
-            currentSource.stop();
-            logger.info("🔇 Sonnerie personnalisée arrêtée.");
-        } catch (e) {}
+        try { currentSource.stop(); } catch (e) {}
         currentSource = null;
     }
 }
 
 export default definePlugin({
     name: "CustomRingtone",
-    description: "Remplace la sonnerie d'appel par un MP3 local (V1.29.0).",
+    description: "Remplace TOUS les sons d'appel (V1.32.0).",
     authors: [{ name: "Antigravity", id: 1n }],
     settings,
 
     start() {
-        const SoundModule = findByProps("playSound", "createSound");
+        const SoundModule = findByProps("getSoundURL", "playSound");
         if (SoundModule) {
             savedModule = SoundModule;
-            
-            // Hook playSound
-            originalPlaySound = SoundModule.playSound;
-            SoundModule.playSound = (name: string, volume: number) => {
-                if (name === "call_ringing" || name === "call_ringing_v2") {
-                    logger.info("🎯 Interception playSound");
-                    playCallSound();
-                    return;
-                }
-                return originalPlaySound(name, volume);
-            };
+            originalGetSoundURL = SoundModule.getSoundURL;
+            SoundModule.getSoundURL = (name: string) => {
+                // On intercepte ENTRANT (ringing) ET SORTANT (calling)
+                const isCall = name === "call_ringing" || 
+                               name === "call_ringing_v2" || 
+                               name === "call_calling" || 
+                               name === "call_calling_v2";
 
-            // Hook createSound
-            originalCreateSound = SoundModule.createSound;
-            SoundModule.createSound = (name: string) => {
-                if (name === "call_ringing" || name === "call_ringing_v2") {
-                    logger.info("🎯 Interception createSound");
+                if (isCall) {
+                    logger.info(`🎯 Interception du son : ${name}`);
                     playCallSound();
-                    return {
-                        play: () => {},
-                        stop: () => stopCallSound(),
-                        pause: () => stopCallSound(),
-                        loop: () => {}
-                    };
+                    return "data:audio/wav;base64,UklGRiQAAABXQVZFRm10IBAAAAABAAEAAAIBAAAQBAEAAW9hdGEAAAAA";
                 }
-                return originalCreateSound(name);
+                return originalGetSoundURL(name);
             };
         }
 
-        // --- GESTION DES ÉVÉNEMENTS FLUX POUR ARRÊTER LE SON ---
-        const handleStopEvents = () => {
-            stopCallSound();
-        };
-
-        FluxDispatcher.subscribe("CALL_DELETE", handleStopEvents);
-        FluxDispatcher.subscribe("VOICE_STATE_UPDATE", handleStopEvents);
-
-        logger.info("✅ Hook de sonnerie Pro 1.29.0 prêt.");
+        const stop = () => stopCallSound();
+        FluxDispatcher.subscribe("CALL_DELETE", stop);
+        FluxDispatcher.subscribe("VOICE_STATE_UPDATE", stop);
+        logger.info("✅ Hook de sonnerie totale 1.32.0 prêt.");
     },
 
     stop() {
         stopCallSound();
-        if (savedModule) {
-            if (originalPlaySound) savedModule.playSound = originalPlaySound;
-            if (originalCreateSound) savedModule.createSound = originalCreateSound;
+        if (savedModule && originalGetSoundURL) {
+            savedModule.getSoundURL = originalGetSoundURL;
         }
     },
 
@@ -125,7 +97,7 @@ export default definePlugin({
 
     settingsAboutComponent: () => {
         return (
-            <Forms.FormSection title="Configuration de la sonnerie">
+            <Forms.FormSection title="Configuration Sonnerie">
                 <div style={{ display: "flex", gap: "10px", marginBottom: "10px" }}>
                     <Button onClick={() => {
                         const input = document.createElement("input");
@@ -135,24 +107,18 @@ export default definePlugin({
                             const file = e.target.files?.[0];
                             if (file) {
                                 const reader = new FileReader();
-                                reader.onload = () => { settings.store.customSound = reader.result as string; alert("MP3 chargé !"); };
+                                reader.onload = () => { settings.store.customSound = reader.result as string; alert("Prêt !"); };
                                 reader.readAsDataURL(file);
                             }
                         };
                         input.click();
                     }}>
-                        📁 Charger MP3
+                        📁 Charger
                     </Button>
                     <Button color={Button.Colors.GREEN} onClick={() => playCallSound()}>
                         ▶️ Tester
                     </Button>
-                    <Button color={Button.Colors.RED} look={Button.Looks.OUTLINED} onClick={() => stopCallSound()}>
-                        ⏹️ Arrêter
-                    </Button>
                 </div>
-                <Text variant="text-sm/normal" color="header-secondary">
-                    Version 1.29.0 - Support de l'arrêt automatique au décrochage.
-                </Text>
             </Forms.FormSection>
         );
     }

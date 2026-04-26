@@ -1,7 +1,7 @@
 import definePlugin, { OptionType } from "@utils/types";
 import { definePluginSettings } from "@api/Settings";
 import { Logger } from "@utils/Logger";
-import { findByCode, findByProps, find } from "@webpack";
+import { findByProps, findByCode, find } from "@webpack";
 import { Button, Forms, Text, React } from "@webpack/common";
 
 const logger = new Logger("CustomRingtone");
@@ -21,6 +21,7 @@ const settings = definePluginSettings({
 });
 
 let originalPlaySound: any = null;
+let originalCreateSound: any = null;
 let savedModule: any = null;
 
 async function playCallSound() {
@@ -38,9 +39,9 @@ async function playCallSound() {
         source.buffer = audioBuffer;
         source.connect(audioContext.destination);
         source.start(0);
-        logger.info("Lecture audio déclenchée !");
+        logger.info("🔊 Lecture du son personnalisé !");
     } catch (error) {
-        logger.error("Erreur de lecture :", error);
+        logger.error("❌ Erreur de lecture :", error);
     }
 }
 
@@ -52,37 +53,47 @@ export default definePlugin({
 
     start() {
         const attemptHook = () => {
-            // Recherche ultra-large : par propriétés OU par code interne
             const SoundModule = findByProps("playSound", "createSound") 
                              || findByProps("playSound", "getSoundURL")
-                             || find(m => m?.playSound || m?.default?.playSound)
-                             || findByCode("call_ringing");
+                             || find(m => m?.playSound || m?.default?.playSound);
 
             if (SoundModule) {
                 const target = SoundModule.playSound ? SoundModule : SoundModule.default;
                 
                 if (target && target.playSound) {
                     savedModule = target;
-                    originalPlaySound = target.playSound;
                     
+                    // Hook 1: playSound (Méthode directe)
+                    originalPlaySound = target.playSound;
                     target.playSound = (name: string, volume: number) => {
-                        // On vérifie si c'est une sonnerie d'appel
-                        const isRingtone = typeof name === "string" && (
-                            name === "call_ringing" || 
-                            name === "call_ringing_v2" || 
-                            name === "call_calling" ||
-                            name.includes("ringing")
-                        );
-
-                        if (isRingtone) {
-                            logger.info(`Interception réussie de : ${name}`);
+                        if (typeof name === "string" && (name.includes("call_ringing") || name.includes("ringing"))) {
+                            logger.info(`🎯 Interception playSound : ${name}`);
                             playCallSound();
-                            return; // Bloque le son original
+                            return; 
                         }
                         return originalPlaySound(name, volume);
                     };
+
+                    // Hook 2: createSound (Méthode par objet)
+                    if (target.createSound) {
+                        originalCreateSound = target.createSound;
+                        target.createSound = (name: string) => {
+                            if (typeof name === "string" && (name.includes("call_ringing") || name.includes("ringing"))) {
+                                logger.info(`🎯 Interception createSound : ${name}`);
+                                playCallSound();
+                                // On retourne un objet factice qui ne fait rien
+                                return { 
+                                    play: () => logger.info(`🔇 Son original "${name}" muet`),
+                                    stop: () => {},
+                                    pause: () => {},
+                                    loop: () => {}
+                                };
+                            }
+                            return originalCreateSound(name);
+                        };
+                    }
                     
-                    logger.info("✅ Hook sonore opérationnel !");
+                    logger.info("✅ Double Hook (playSound + createSound) opérationnel !");
                     return true;
                 }
             }
@@ -98,8 +109,9 @@ export default definePlugin({
     },
 
     stop() {
-        if (savedModule && originalPlaySound) {
-            savedModule.playSound = originalPlaySound;
+        if (savedModule) {
+            if (originalPlaySound) savedModule.playSound = originalPlaySound;
+            if (originalCreateSound) savedModule.createSound = originalCreateSound;
         }
     },
 
@@ -112,7 +124,7 @@ export default definePlugin({
             const reader = new FileReader();
             reader.onload = () => {
                 settings.store.customSound = reader.result as string;
-                alert("Sonnerie chargée !");
+                alert("Son chargé !");
             };
             reader.readAsDataURL(file);
         };

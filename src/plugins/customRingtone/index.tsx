@@ -1,62 +1,54 @@
 import definePlugin, { OptionType } from "@utils/types";
 import { definePluginSettings } from "@api/Settings";
 import { findByProps } from "@webpack";
-import { Devs } from "@utils/constants";
 import { Button, React, showToast, Toasts } from "@webpack/common";
 import { SKYPE_BASE64 } from "./skype_base64";
 
 const SoundModule = findByProps("playSound", "getSoundURL");
 
-// Audio Context for reliable playback
-let audioContext: AudioContext | null = null;
-
-function getAudioContext() {
-    if (!audioContext) {
-        audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-    return audioContext;
-}
-
-// Convert base64 to ArrayBuffer
-async function base64ToArrayBuffer(base64: string): Promise<ArrayBuffer> {
-    const binaryString = atob(base64.split(",")[1]);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes.buffer;
-}
-
-// Play sound using Web Audio API
+// Fonction pour jouer le son (supporte URL et Base64 via Blob)
 async function playAudio(source: string, volume: number = 1) {
-    const context = getAudioContext();
-    await context.resume();
+    console.log("[CustomRingtone] Tentative de lecture...", { volume });
     
     try {
-        let arrayBuffer: ArrayBuffer;
-        
+        let url = source;
+
+        // Si c'est du base64 (le son Skype par défaut)
         if (source.startsWith("data:")) {
-            arrayBuffer = await base64ToArrayBuffer(source);
-        } else {
-            const response = await fetch(source);
-            arrayBuffer = await response.arrayBuffer();
+            const parts = source.split(",");
+            const mime = parts[0].match(/:(.*?);/)?.[1] || "audio/mpeg";
+            const bstr = atob(parts[1]);
+            let n = bstr.length;
+            const u8arr = new Uint8Array(n);
+            while (n--) {
+                u8arr[n] = bstr.charCodeAt(n);
+            }
+            const blob = new Blob([u8arr], { type: mime });
+            url = URL.createObjectURL(blob);
+            console.log("[CustomRingtone] URL de l'objet créé :", url);
         }
 
-        const audioBuffer = await context.decodeAudioData(arrayBuffer);
-        const sourceNode = context.createBufferSource();
-        const gainNode = context.createGain();
+        const audio = new Audio(url);
+        audio.volume = volume;
+        
+        audio.onerror = (e) => {
+            console.error("[CustomRingtone] Erreur de l'élément Audio :", e);
+        };
 
-        sourceNode.buffer = audioBuffer;
-        gainNode.gain.value = volume;
-
-        sourceNode.connect(gainNode);
-        gainNode.connect(context.destination);
-
-        sourceNode.start(0);
+        await audio.play();
+        console.log("[CustomRingtone] Lecture démarrée avec succès.");
+        
+        // Nettoyage de l'URL si c'est un blob
+        if (url.startsWith("blob:")) {
+            audio.onended = () => {
+                URL.revokeObjectURL(url);
+                console.log("[CustomRingtone] Blob URL révoqué.");
+            };
+        }
+        
         return true;
     } catch (e) {
-        console.error("CustomRingtone: Playback error", e);
+        console.error("[CustomRingtone] Erreur fatale dans playAudio :", e);
         throw e;
     }
 }
@@ -65,8 +57,8 @@ const settings = definePluginSettings({
     ringtoneUrl: {
         type: OptionType.STRING,
         default: "",
-        placeholder: "Mettez l'URL ici (.mp3)",
-        description: "L'URL du son personnalisé (.mp3). Laissez vide pour utiliser le son Skype par défaut.",
+        placeholder: "URL du fichier .mp3",
+        description: "Laissez vide pour utiliser le son Skype par défaut.",
         name: "URL de la sonnerie"
     },
     buttons: {
@@ -75,18 +67,14 @@ const settings = definePluginSettings({
             <div style={{ display: "flex", gap: "10px", flexDirection: "column" }}>
                 <div style={{ display: "flex", gap: "10px" }}>
                     <Button 
-                        color={Button.Colors.BRAND} 
                         onClick={async () => {
-                            const url = settings.store.ringtoneUrl;
-                            const source = url || SKYPE_BASE64;
-                            
-                            showToast(url ? "Téléchargement..." : "Lecture du son par défaut...", Toasts.Type.MESSAGE);
-                            
+                            const source = settings.store.ringtoneUrl || SKYPE_BASE64;
+                            showToast("Test du son en cours...", Toasts.Type.MESSAGE);
                             try {
                                 await playAudio(source);
-                                showToast("Son joué !", Toasts.Type.SUCCESS);
+                                showToast("Succès !", Toasts.Type.SUCCESS);
                             } catch (e) {
-                                showToast("Erreur: " + e.message, Toasts.Type.FAILURE);
+                                showToast("Erreur : voir la console", Toasts.Type.FAILURE);
                             }
                         }}
                     >
@@ -97,14 +85,11 @@ const settings = definePluginSettings({
                         look={Button.Looks.OUTLINED}
                         onClick={() => {
                             settings.store.ringtoneUrl = "";
-                            showToast("Utilisation du son Skype par défaut", Toasts.Type.SUCCESS);
+                            showToast("Réinitialisé au son Skype", Toasts.Type.SUCCESS);
                         }}
                     >
-                        Réinitialiser (Skype)
+                        Réinitialiser
                     </Button>
-                </div>
-                <div style={{ color: "var(--text-muted)", fontSize: "12px" }}>
-                    Note: Si l'URL est vide, le plugin utilise le son Skype intégré (Base64).
                 </div>
             </div>
         )
@@ -113,43 +98,34 @@ const settings = definePluginSettings({
 
 export default definePlugin({
     name: "CustomRingtone",
-    description: "Remplace le son d'appel Discord par un son personnalisé (Skype par défaut).",
-    authors: [
-        {
-            name: "SamChico2008",
-            id: 1121045973801082880n
-        }
-    ],
-    tags: ["Notifications", "Fun"],
+    description: "Remplace la sonnerie d'appel par le son de votre choix (ou Skype).",
+    authors: [{ name: "SamChico2008", id: 1121045973801082880n }],
     settings,
 
     start() {
+        console.log("[CustomRingtone] Initialisation...");
         if (!SoundModule) {
-            console.error("CustomRingtone: Module de son introuvable.");
+            console.error("[CustomRingtone] Module de son introuvable.");
             return;
         }
 
         this.originalPlaySound = SoundModule.playSound;
         SoundModule.playSound = (sound: string, volume: number) => {
-            const url = this.settings.store.ringtoneUrl;
-            
-            const isRingtone = [
+            // Liste des sons d'appel à intercepter
+            const isCallSound = [
                 "call_ringing",
                 "call_ringing_v2",
                 "call_ringing_beat",
                 "call_calling",
                 "incoming_call"
-            ].includes(sound) || sound.includes("ringing");
+            ].includes(sound) || (typeof sound === "string" && sound.includes("ringing"));
 
-            if (isRingtone) {
-                console.log(`CustomRingtone: Interception de "${sound}"`);
-                
-                const source = url || SKYPE_BASE64;
+            if (isCallSound) {
+                console.log(`[CustomRingtone] Son détecté : ${sound}`);
+                const source = settings.store.ringtoneUrl || SKYPE_BASE64;
                 playAudio(source, volume).catch(() => {
-                    console.warn("CustomRingtone: Web Audio failed, falling back to original sound.");
                     this.originalPlaySound(sound, volume);
                 });
-                
                 return;
             }
             
@@ -161,10 +137,5 @@ export default definePlugin({
         if (SoundModule && this.originalPlaySound) {
             SoundModule.playSound = this.originalPlaySound;
         }
-        if (audioContext) {
-            audioContext.close();
-            audioContext = null;
-        }
     }
 });
-
